@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visible Planets Tonight</title>
+    <meta
+      id="metaDescription"
+      name="description"
+      content="See which planets are visible tonight with a live Sun-centered sky map, location tools, and stargazing recommendations."
+    />
+    <link id="canonicalLink" rel="canonical" href="./" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="scene-frame">
+        <aside class="hud-column hud-column-left">
+          <div class="panel controls-panel">
+            <p class="eyebrow">Location</p>
+            <label class="field">
+              <span>Place</span>
+              <select id="presetSelect">
+                <option value="custom">Custom</option>
+                <option value="brussels">Brussels, Belgium</option>
+                <option value="newyork">New York, USA</option>
+                <option value="tokyo">Tokyo, Japan</option>
+                <option value="sydney">Sydney, Australia</option>
+                <option value="capeTown">Cape Town, South Africa</option>
+                <option value="saoPaulo">Sao Paulo, Brazil</option>
+              </select>
+            </label>
+
+            <div class="coords-grid">
+              <label class="field">
+                <span>Latitude</span>
+                <input id="latInput" type="number" min="-90" max="90" step="0.0001" />
+              </label>
+              <label class="field">
+                <span>Longitude</span>
+                <input id="lonInput" type="number" min="-180" max="180" step="0.0001" />
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button id="geolocateBtn" type="button">Use My Location</button>
+              <button id="shareBtn" type="button">Copy Link</button>
+              <button id="saveCardBtn" type="button">Save Image</button>
+            </div>
+          </div>
+
+          <div class="panel time-panel">
+            <p class="eyebrow">Time</p>
+            <div class="time-readout">
+              <span class="label">Simulation Time</span>
+              <strong id="timeLabel"></strong>
+              <span id="timezoneLabel" class="helper-text"></span>
+            </div>
+
+            <div class="time-edit-grid">
+              <label class="field">
+                <span>Date</span>
+                <input id="dateInput" type="date" />
+              </label>
+              <label class="field">
+                <span>Time</span>
+                <input id="clockInput" type="time" step="60" />
+              </label>
+            </div>
+
+            <div class="button-row time-actions">
+              <button data-speed="0" type="button">Pause</button>
+              <button id="nowBtn" type="button">Now</button>
+            </div>
+
+            <button id="liveBtn" class="toggle-chip is-active" type="button">Live Follow</button>
+          </div>
+
+          <div class="panel monetize-panel">
+            <p class="eyebrow">Support</p>
+            <p class="helper-text">
+              Optional support and a few useful gear links.
+            </p>
+            <div class="monetize-actions">
+              <a class="monetize-link donate-link" href="https://ko-fi.com/" target="_blank" rel="noreferrer">
+                Buy Me a Coffee
+              </a>
+              <a
+                class="monetize-link affiliate-link"
+                href="https://www.amazon.com/s?k=beginner+telescope"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Telescopes
+              </a>
+              <a
+                class="monetize-link affiliate-link"
+                href="https://www.amazon.com/s?k=astronomy+binoculars"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Binoculars
+              </a>
+            </div>
+            <div id="recommendationCard" class="recommendation-card"></div>
+            <p class="fine-print">
+              Swap these with your own Ko-fi and affiliate URLs when you are ready to publish.
+            </p>
+          </div>
+
+          <div class="panel sponsor-panel">
+            <p class="eyebrow">Recommended</p>
+            <div class="ad-slot">
+              <span class="ad-badge">Ad</span>
+              <strong>Featured Gear Spot</strong>
+              <p class="helper-text">
+                Use this quietly for a small ad, sponsor note, or one featured affiliate link.
+              </p>
+            </div>
+          </div>
+        </aside>
+
+        <aside class="hud-column hud-column-right">
+          <div class="panel details-panel">
+            <p class="eyebrow">Selected Body</p>
+            <div id="selectionCard" class="selection-card"></div>
+          </div>
+
+          <div class="panel legend-panel">
+            <p class="eyebrow">View</p>
+            <div class="toggle-grid">
+              <button class="toggle-chip is-active" data-toggle="showOrbits" type="button">Orbit Paths</button>
+              <button class="toggle-chip is-active" data-toggle="showCone" type="button">View Cone</button>
+              <button class="toggle-chip is-active" data-toggle="showLabels" type="button">Labels</button>
+              <button class="toggle-chip is-active" data-toggle="showHighlights" type="button">Visible Glow</button>
+              <button class="toggle-chip is-active" data-toggle="showAndromeda" type="button">Andromeda</button>
+              <button class="toggle-chip" id="beginnerModeBtn" type="button">Beginner Mode</button>
+            </div>
+          </div>
+
+          <div class="panel visible-panel">
+            <p class="eyebrow">Visible Now</p>
+            <div id="visibleList" class="visible-list"></div>
+          </div>
+
+          <div class="panel times-panel">
+            <p class="eyebrow">Tonight's Times</p>
+            <div id="timesCard" class="selection-card"></div>
+          </div>
+        </aside>
+        <canvas id="spaceCanvas" width="1400" height="1400" aria-label="Planet scene"></canvas>
+      </section>
+
+      <section class="content-section">
+        <article class="content-card hero-copy">
+          <p class="eyebrow">Tonight's Sky</p>
+          <h1 id="seoHeadline">Visible planets tonight</h1>
+          <p id="seoSummary" class="content-copy"></p>
+        </article>
+
+        <article class="content-card">
+          <p class="eyebrow">What To Watch</p>
+          <div id="seoBody" class="content-copy"></div>
+        </article>
+
+        <article class="content-card">
+          <p class="eyebrow">Stargazing Tips</p>
+          <div id="tipsBody" class="content-copy"></div>
+        </article>
+
+        <article class="content-card">
+          <p class="eyebrow">FAQ</p>
+          <div id="faqBody" class="faq-list"></div>
+        </article>
+
+        <article class="content-card">
+          <p class="eyebrow">City Pages</p>
+          <div id="cityLinks" class="content-copy"></div>
+        </article>
+
+        <article class="content-card">
+          <p class="eyebrow">Tonight Highlights</p>
+          <div id="eventsBody" class="content-copy"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
