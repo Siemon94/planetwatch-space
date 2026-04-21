@@ -430,31 +430,60 @@ canvas {
   }
 }
 
+@media (max-width: 900px) {
+  .scene-frame {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    overflow: visible;
+  }
+
+  .hud-column {
+    position: static;
+    width: 100%;
+    display: grid;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .hud-column-left,
+  .hud-column-right {
+    inset: auto;
+  }
+
+  .hud-column-left {
+    order: 2;
+  }
+
+  .hud-column-right {
+    order: 3;
+  }
+
+  canvas {
+    order: 1;
+    width: min(100%, 560px);
+    max-width: 100%;
+    max-height: none;
+    align-self: center;
+  }
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px;
   }
 
   .hud-column {
-    width: min(210px, 28vw);
-    gap: 10px;
-  }
-
-  .hud-column-left {
-    inset: 12px auto auto 12px;
-  }
-
-  .hud-column-right {
-    inset: 12px 12px auto auto;
+    gap: 8px;
   }
 
   canvas {
-    max-width: min(100%, calc(100% - 470px));
-    max-height: calc(100% - 24px);
-  }
-
-  .scene-frame {
-    height: calc(100dvh - 24px);
+    width: 100%;
   }
 
   .coords-grid,
