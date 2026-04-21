@@ -82,7 +82,6 @@ body::before {
 .legend-item,
 .field span,
 .label,
-.visible-list,
 .helper-text,
 .selection-card {
   font-size: 12px;
@@ -101,7 +100,6 @@ body::before {
 
 .copy,
 .legend-item,
-.visible-list,
 #timeLabel {
   color: var(--text);
 }
@@ -186,6 +184,46 @@ input:focus-visible {
   gap: 8px;
 }
 
+.cone-scale {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cone-scale-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(234, 234, 234, 0.88);
+}
+
+.cone-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  display: inline-block;
+}
+
+.cone-eye {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cone-binoculars {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cone-scope {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.cone-sun {
+  background: rgba(255, 226, 120, 0.28);
+}
+
 .time-actions {
   grid-template-columns: 1fr 1fr;
 }
@@ -203,21 +241,6 @@ input:focus-visible {
   background: rgba(246, 240, 137, 0.16);
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.visible-list {
-  margin-top: 4px;
-  min-height: 36px;
-}
-
-.visible-pill {
-  display: inline-block;
-  margin: 4px 4px 0 0;
-  padding: 5px 9px;
-  border: 1px solid #7a7a7a;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  font-size: 11px;
 }
 
 .selection-card {
@@ -513,8 +536,7 @@ canvas {
   .copy,
   .legend-item,
   .field span,
-  .label,
-  .visible-list {
+  .label {
     font-size: 11px;
   }
 

@@ -14,7 +14,6 @@ const timeLabel = document.getElementById("timeLabel");
 const timezoneLabel = document.getElementById("timezoneLabel");
 const dateInput = document.getElementById("dateInput");
 const clockInput = document.getElementById("clockInput");
-const visibleList = document.getElementById("visibleList");
 const selectionCard = document.getElementById("selectionCard");
 const recommendationCard = document.getElementById("recommendationCard");
 const seoHeadline = document.getElementById("seoHeadline");
@@ -46,6 +45,12 @@ const J2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
 const MS_PER_DAY = 86400000;
 const OBLIQUITY = 23.43928 * DEG;
 const VIEW_CONE_HALF_ANGLE = 50 * DEG;
+const SUN_CONE_HALF_ANGLE = 30 * DEG;
+const CONE_BANDS = [
+  { radiusFactor: 0.28, fill: "rgba(255,255,255,0.07)", stroke: "rgba(255,255,255,0.12)" },
+  { radiusFactor: 0.5, fill: "rgba(255,255,255,0.12)", stroke: "rgba(255,255,255,0.16)" },
+  { radiusFactor: 0.72, fill: "rgba(255,255,255,0.18)", stroke: "rgba(255,255,255,0.22)" },
+];
 const EARTH_ELEMENTS = {
   a: [1.00000261, 0.00000562],
   e: [0.01671123, -0.00004392],
@@ -206,6 +211,7 @@ const state = {
   showLabels: true,
   showHighlights: true,
   showAndromeda: true,
+  showSunCone: true,
   liveMode: true,
   beginnerMode: false,
   hoveredBody: null,
@@ -430,6 +436,20 @@ function applyUiLanguage() {
   nowBtn.textContent = "Now";
 }
 
+function compactTime(timestamp) {
+  const value = formatDateTimeLocal(timestamp);
+  return value.replace(/[-:]/g, "");
+}
+
+function expandCompactTime(value) {
+  if (!value || value.length !== 13) {
+    return null;
+  }
+  const iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}`;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function getLocationLabel() {
   if (presetSelect.value !== "custom" && places[presetSelect.value]) {
     return places[presetSelect.value].name;
@@ -454,15 +474,24 @@ function setToggleUI() {
 
 function updateUrlState() {
   const params = new URLSearchParams();
-  params.set("lat", state.location.lat.toFixed(4));
-  params.set("lon", state.location.lon.toFixed(4));
-  params.set("time", new Date(state.simulationTime).toISOString());
-  params.set("live", String(state.liveMode));
-  params.set("beginner", String(state.beginnerMode));
+
   if (presetSelect.value && presetSelect.value !== "custom") {
-    params.set("place", presetSelect.value);
+    params.set("p", presetSelect.value);
+  } else {
+    params.set("lat", state.location.lat.toFixed(2));
+    params.set("lon", state.location.lon.toFixed(2));
   }
-  const nextUrl = `${window.location.pathname}?${params.toString()}`;
+
+  if (!state.liveMode) {
+    params.set("t", compactTime(state.simulationTime));
+  }
+
+  if (state.beginnerMode) {
+    params.set("b", "1");
+  }
+
+  const query = params.toString();
+  const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
   if (state.lastUrlKey !== nextUrl) {
     window.history.replaceState({}, "", nextUrl);
     state.lastUrlKey = nextUrl;
@@ -472,12 +501,11 @@ function updateUrlState() {
 
 function restoreFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const place = params.get("place");
+  const place = params.get("p");
   const lat = Number(params.get("lat"));
   const lon = Number(params.get("lon"));
-  const time = params.get("time");
-  const live = params.get("live");
-  const beginner = params.get("beginner");
+  const compact = params.get("t");
+  const beginner = params.get("b");
 
   if (place && places[place]) {
     presetSelect.value = place;
@@ -487,18 +515,15 @@ function restoreFromUrl() {
     setLocation({ name: "Custom", lat, lon });
   }
 
-  if (time) {
-    const parsed = Date.parse(time);
+  if (compact) {
+    const parsed = expandCompactTime(compact);
     if (Number.isFinite(parsed)) {
       state.simulationTime = parsed;
+      state.liveMode = false;
     }
   }
 
-  if (live === "false") {
-    state.liveMode = false;
-  }
-
-  if (beginner === "true") {
+  if (beginner === "1") {
     state.beginnerMode = true;
   }
 }
@@ -647,72 +672,29 @@ function formatShortTime(timestamp) {
     minute: "2-digit",
   }).format(new Date(timestamp));
 }
-
-function getBodySnapshotForTiming(bodyName, timestamp) {
-  if (bodyName === "Sun") {
-    const earth = heliocentricPosition(EARTH_ELEMENTS, timestamp);
-    const equatorial = eclipticToEquatorial({ x: -earth.x, y: -earth.y, z: -earth.z });
-    const { ra, dec } = vectorToRaDec(equatorial);
-    return altitudeAzimuth(ra, dec, timestamp, state.location.lat, state.location.lon);
-  }
-
-  if (bodyName === "Moon") {
-    const moonGeo = moonGeocentricPosition(timestamp);
-    const equatorial = eclipticToEquatorial(moonGeo);
-    const { ra, dec } = vectorToRaDec(equatorial);
-    return altitudeAzimuth(ra, dec, timestamp, state.location.lat, state.location.lon);
-  }
-
-  const planet = planets.find((item) => item.name === bodyName);
-  if (!planet) {
-    return null;
-  }
-  const geocentric = geocentricEclipticPosition(planet, timestamp);
-  const equatorial = eclipticToEquatorial(geocentric);
-  const { ra, dec } = vectorToRaDec(equatorial);
-  return altitudeAzimuth(ra, dec, timestamp, state.location.lat, state.location.lon);
-}
-
-function getRiseSetTimes(bodyName, timestamp) {
-  const start = startOfLocalDay(timestamp);
-  const end = start + 24 * 60 * 60 * 1000;
-  const step = 15 * 60 * 1000;
-  let previous = getBodySnapshotForTiming(bodyName, start);
-  let rise = null;
-  let set = null;
-
-  for (let time = start + step; time <= end; time += step) {
-    const current = getBodySnapshotForTiming(bodyName, time);
-    if (!previous || !current) {
-      previous = current;
-      continue;
-    }
-
-    if (previous.altitude <= 0 && current.altitude > 0 && rise == null) {
-      rise = time;
-    }
-    if (previous.altitude >= 0 && current.altitude < 0 && set == null) {
-      set = time;
-    }
-    previous = current;
-  }
-
-  return { rise, set };
-}
-
 function updateTimesCard() {
-  const selected = state.selectedBodyName === "Andromeda" ? "Moon" : state.selectedBodyName;
-  const sunTimes = getRiseSetTimes("Sun", state.simulationTime);
-  const moonTimes = getRiseSetTimes("Moon", state.simulationTime);
-  const selectedTimes = getRiseSetTimes(selected, state.simulationTime);
+  const utc = new Date(state.simulationTime);
+  const utcHours =
+    utc.getUTCHours() +
+    utc.getUTCMinutes() / 60 +
+    utc.getUTCSeconds() / 3600;
+  const solarHours = ((utcHours + state.location.lon / 15) % 24 + 24) % 24;
+  const solarHour = Math.floor(solarHours);
+  const solarMinute = Math.floor((solarHours - solarHour) * 60);
+  const earthLocalTime = `${String(solarHour).padStart(2, "0")}:${String(solarMinute).padStart(2, "0")}`;
+  const dayPhase =
+    solarHours >= 6 && solarHours < 12
+      ? "Morning"
+      : solarHours >= 12 && solarHours < 18
+        ? "Afternoon"
+        : solarHours >= 18 && solarHours < 22
+          ? "Evening"
+          : "Night";
+
   timesCard.innerHTML = `
     <div class="times-grid">
-      <div class="selection-stat"><strong>Earth Sunrise</strong>${formatShortTime(sunTimes.rise)}</div>
-      <div class="selection-stat"><strong>Earth Sunset</strong>${formatShortTime(sunTimes.set)}</div>
-      <div class="selection-stat"><strong>Moonrise</strong>${formatShortTime(moonTimes.rise)}</div>
-      <div class="selection-stat"><strong>Moonset</strong>${formatShortTime(moonTimes.set)}</div>
-      <div class="selection-stat"><strong>${selected} Rise</strong>${formatShortTime(selectedTimes.rise)}</div>
-      <div class="selection-stat"><strong>${selected} Set</strong>${formatShortTime(selectedTimes.set)}</div>
+      <div class="selection-stat"><strong>Local Time</strong>${earthLocalTime}</div>
+      <div class="selection-stat"><strong>Day Phase</strong>${dayPhase}</div>
     </div>
   `;
 }
@@ -843,14 +825,14 @@ function updateSeoContent() {
   });
 
   document.title = `Visible planets tonight in ${locationLabel}`;
-  metaDescription.content = `Check visible planets tonight in ${locationLabel}. Explore a live sky map, current viewing conditions, Moon phase, rise and set times, and beginner gear recommendations for ${isoDate}.`;
+  metaDescription.content = `Check visible planets tonight in ${locationLabel}. Explore a live sky map, current viewing conditions, Earth local time, Moon phase, and beginner gear recommendations for ${isoDate}.`;
 
   seoHeadline.textContent = `Visible planets tonight in ${locationLabel}`;
   seoSummary.textContent = `For ${isoDate}, the main bodies above the horizon from ${locationLabel} are ${visibleTextHuman}. Use the live sky map above to pause, jump back to now, or share the exact sky setup with a direct link.`;
 
   seoBody.innerHTML = `
     <p><strong>Tonight's quick answer:</strong> From ${locationLabel}, the most likely visible bodies right now are ${visibleTextHuman}. The map keeps Earth-based visibility in sync with the live Sun-centered layout, so the list above and the cone on the map are connected.</p>
-    <p><strong>How to use this page:</strong> Pick your place, adjust the time, and use the details card to inspect Earth, the Moon, the visible planets, or Andromeda. The extra timing card adds sunrise, sunset, moonrise, moonset, and rise/set times for the selected body.</p>
+    <p><strong>How to use this page:</strong> Pick your place, adjust the time, and use the details card to inspect Earth, the Moon, the visible planets, or Andromeda. The Earth time card keeps the local hour and day phase tied to your chosen location.</p>
   `;
 
   tipsBody.innerHTML = `
@@ -862,7 +844,7 @@ function updateSeoContent() {
   const selectedName = state.selectedBodyName;
   eventsBody.innerHTML = `
     <p><strong>Best target tonight:</strong> ${visible[0] ?? "The Moon"} is your easiest first object from ${locationLabel} right now.</p>
-    <p><strong>Body to watch:</strong> ${selectedName} is highlighted in the details panel. Use the rise/set section to time when it is easiest to catch.</p>
+    <p><strong>Body to watch:</strong> ${selectedName} is highlighted in the details panel. Use the Earth time and the cones on the map to get a quicker feel for the viewing moment.</p>
     <p><strong>Shareable sky:</strong> The copy link button saves your place and time into the URL, which is useful for social posts or city-specific landing pages.</p>
   `;
 
@@ -892,18 +874,6 @@ function getBodyAtCanvasPoint(clientX, clientY) {
         return Math.sqrt(dx * dx + dy * dy) <= body.hitRadius;
       }) ?? null
   );
-}
-
-function updateVisibleList(snapshots) {
-  const visible = snapshots.filter((planet) => planet.visible);
-  if (visible.length === 0) {
-    visibleList.innerHTML = "<p>No planets are above your horizon right now.</p>";
-    return;
-  }
-
-  visibleList.innerHTML = visible
-    .map((planet) => `<span class="visible-pill">${planet.name}</span>`)
-    .join("");
 }
 
 function drawSketchCircle(x, y, radius, strokeStyle, lineWidth = 1.8, wobble = 0.06) {
@@ -1104,18 +1074,45 @@ function drawScene(timestamp) {
   ctx.translate(centerX, centerY);
 
   if (state.showCone) {
-    ctx.beginPath();
-    ctx.moveTo(Math.round(earthX), Math.round(earthY));
-    ctx.arc(
-      earthX,
-      earthY,
-      sceneRadius * 0.72,
-      coneAngle - VIEW_CONE_HALF_ANGLE,
-      coneAngle + VIEW_CONE_HALF_ANGLE,
-    );
-    ctx.closePath();
-    ctx.fillStyle = "rgba(185,185,185,0.16)";
-    ctx.fill();
+    let previousRadius = 0;
+    CONE_BANDS.forEach((band) => {
+      const currentRadius = sceneRadius * band.radiusFactor;
+      ctx.beginPath();
+      ctx.moveTo(
+        earthX + Math.cos(coneAngle - VIEW_CONE_HALF_ANGLE) * previousRadius,
+        earthY + Math.sin(coneAngle - VIEW_CONE_HALF_ANGLE) * previousRadius,
+      );
+      ctx.arc(
+        earthX,
+        earthY,
+        currentRadius,
+        coneAngle - VIEW_CONE_HALF_ANGLE,
+        coneAngle + VIEW_CONE_HALF_ANGLE,
+      );
+      if (previousRadius > 0) {
+        ctx.lineTo(
+          earthX + Math.cos(coneAngle + VIEW_CONE_HALF_ANGLE) * previousRadius,
+          earthY + Math.sin(coneAngle + VIEW_CONE_HALF_ANGLE) * previousRadius,
+        );
+        ctx.arc(
+          earthX,
+          earthY,
+          previousRadius,
+          coneAngle + VIEW_CONE_HALF_ANGLE,
+          coneAngle - VIEW_CONE_HALF_ANGLE,
+          true,
+        );
+      } else {
+        ctx.lineTo(earthX, earthY);
+      }
+      ctx.closePath();
+      ctx.fillStyle = band.fill;
+      ctx.fill();
+      ctx.strokeStyle = band.stroke;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      previousRadius = currentRadius;
+    });
 
     ctx.beginPath();
     ctx.moveTo(Math.round(earthX), Math.round(earthY));
@@ -1125,6 +1122,26 @@ function drawScene(timestamp) {
     );
     ctx.strokeStyle = "rgba(255,255,255,0.35)";
     ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  if (state.showSunCone) {
+    const sunConeRadius = sceneRadius * 0.72;
+    const sunConeAngle = normalizeAngle(earth.angle + Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(earthX, earthY);
+    ctx.arc(
+      earthX,
+      earthY,
+      sunConeRadius,
+      sunConeAngle - SUN_CONE_HALF_ANGLE,
+      sunConeAngle + SUN_CONE_HALF_ANGLE,
+    );
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255, 226, 120, 0.16)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 226, 120, 0.28)";
+    ctx.lineWidth = 1.2;
     ctx.stroke();
   }
 
@@ -1279,7 +1296,6 @@ function drawScene(timestamp) {
   timeLabel.textContent = formatTime(new Date(timestamp));
   timezoneLabel.textContent = USER_TIMEZONE;
   setTimeInputs(timestamp);
-  updateVisibleList(snapshots);
   buildRecommendationContent(snapshots);
   updateSeoContent();
   updateSelectionCard();
@@ -1369,7 +1385,7 @@ saveCardBtn.addEventListener("click", () => {
   exportCtx.fillStyle = "rgba(255,255,255,0.78)";
   exportCtx.fillText(formatTime(new Date(state.simulationTime)), 40, canvas.height + 92);
   exportCtx.fillText(
-    `Visible now: ${state.latestSnapshots.filter((planet) => planet.visible).map((planet) => planet.name).join(", ") || "No bright planets"}`,
+    `Best targets: ${state.latestSnapshots.filter((planet) => planet.visible).map((planet) => planet.name).join(", ") || "No bright planets"}`,
     40,
     canvas.height + 126,
   );
