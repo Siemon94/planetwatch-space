@@ -44,8 +44,11 @@ const RAD = 180 / Math.PI;
 const J2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
 const MS_PER_DAY = 86400000;
 const OBLIQUITY = 23.43928 * DEG;
-const VIEW_CONE_HALF_ANGLE = 50 * DEG;
+const VIEW_CONE_HALF_ANGLE = 18 * DEG;
 const SUN_CONE_HALF_ANGLE = 30 * DEG;
+const VIEW_CONE_PADDING = 8 * DEG;
+const VIEW_CONE_MIN = 10 * DEG;
+const VIEW_CONE_MAX = 42 * DEG;
 const CONE_BANDS = [
   { radiusFactor: 0.28, fill: "rgba(255,255,255,0.07)", stroke: "rgba(255,255,255,0.12)" },
   { radiusFactor: 0.5, fill: "rgba(255,255,255,0.12)", stroke: "rgba(255,255,255,0.16)" },
@@ -409,6 +412,48 @@ function projectedConeAngle(timestamp, location) {
   return normalizeAngle(Math.atan2(zenithEcliptic.y, zenithEcliptic.x));
 }
 
+function getVisibleConeSector(snapshots, fallbackAngle) {
+  const angles = snapshots
+    .filter((planet) => planet.visible)
+    .map((planet) => normalizeAngle(planet.geocentricAngle))
+    .sort((a, b) => a - b);
+
+  if (angles.length === 0) {
+    return {
+      center: fallbackAngle,
+      halfAngle: VIEW_CONE_HALF_ANGLE,
+    };
+  }
+
+  if (angles.length === 1) {
+    return {
+      center: angles[0],
+      halfAngle: VIEW_CONE_MIN + VIEW_CONE_PADDING * 0.5,
+    };
+  }
+
+  let largestGap = -1;
+  let gapIndex = 0;
+  for (let i = 0; i < angles.length; i += 1) {
+    const current = angles[i];
+    const next = i === angles.length - 1 ? angles[0] + Math.PI * 2 : angles[i + 1];
+    const gap = next - current;
+    if (gap > largestGap) {
+      largestGap = gap;
+      gapIndex = i;
+    }
+  }
+
+  const start = angles[(gapIndex + 1) % angles.length];
+  const end = angles[gapIndex] + (gapIndex === angles.length - 1 ? Math.PI * 2 : 0);
+  const span = end - start;
+
+  return {
+    center: normalizeAngle(start + span / 2),
+    halfAngle: clamp(span / 2 + VIEW_CONE_PADDING, VIEW_CONE_MIN, VIEW_CONE_MAX),
+  };
+}
+
 function resizeCanvas() {
   const parent = canvas.parentElement;
   const size = Math.min(parent.clientWidth, parent.clientHeight);
@@ -554,6 +599,7 @@ function getPlanetSnapshots(timestamp) {
       ...planet,
       distance: dist,
       angle,
+      geocentricAngle: Math.atan2(geocentric.y, geocentric.x),
       altitude: horizontal.altitude,
       azimuth: horizontal.azimuth,
       visible: horizontal.altitude > 0,
@@ -1012,6 +1058,68 @@ function drawPlanet(planet, x, y, radius, outlineColor) {
   drawPlanetDetails(planet, x, y, radius);
 }
 
+function drawSun(x, y, radius) {
+  ctx.save();
+
+  const halo = ctx.createRadialGradient(x, y, radius * 0.25, x, y, radius * 2.4);
+  halo.addColorStop(0, "rgba(255, 238, 170, 0.34)");
+  halo.addColorStop(0.38, "rgba(255, 194, 84, 0.2)");
+  halo.addColorStop(0.72, "rgba(255, 150, 48, 0.08)");
+  halo.addColorStop(1, "rgba(255, 120, 24, 0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 2.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  const body = ctx.createRadialGradient(
+    x - radius * 0.28,
+    y - radius * 0.34,
+    radius * 0.14,
+    x,
+    y,
+    radius,
+  );
+  body.addColorStop(0, "#fff8d6");
+  body.addColorStop(0.22, "#ffe890");
+  body.addColorStop(0.58, "#ffbf4d");
+  body.addColorStop(0.82, "#ff9636");
+  body.addColorStop(1, "#d86a18");
+  ctx.fillStyle = body;
+  ctx.shadowColor = "rgba(255, 191, 77, 0.34)";
+  ctx.shadowBlur = radius * 1.1;
+  ctx.fill();
+
+  ctx.lineWidth = Math.max(1.1, radius * 0.08);
+  ctx.strokeStyle = "rgba(255, 244, 196, 0.72)";
+  ctx.stroke();
+
+  ctx.lineWidth = Math.max(1, radius * 0.07);
+  ctx.strokeStyle = "rgba(255, 224, 137, 0.34)";
+  [-0.26, 0.02, 0.29].forEach((offset, index) => {
+    ctx.beginPath();
+    ctx.moveTo(x - radius * 0.7, y + radius * offset);
+    ctx.bezierCurveTo(
+      x - radius * 0.25,
+      y + radius * (offset + 0.08 + index * 0.01),
+      x + radius * 0.18,
+      y + radius * (offset - 0.12),
+      x + radius * 0.72,
+      y + radius * (offset - 0.03),
+    );
+    ctx.stroke();
+  });
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+  ctx.lineWidth = Math.max(0.8, radius * 0.05);
+  ctx.beginPath();
+  ctx.arc(x - radius * 0.22, y - radius * 0.2, radius * 0.4, -0.95, 0.15);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function drawPixelDiamond(x, y, size, fillStyle, strokeStyle = null) {
   const half = size;
   ctx.save();
@@ -1049,8 +1157,9 @@ function drawScene(timestamp) {
   const centerX = width / 2;
   const centerY = height / 2;
   const sceneRadius = Math.min(width, height) * 0.44;
-  const coneAngle = projectedConeAngle(timestamp, state.location);
+  const fallbackConeAngle = projectedConeAngle(timestamp, state.location);
   const snapshots = getPlanetSnapshots(timestamp);
+  const visibleCone = getVisibleConeSector(snapshots, fallbackConeAngle);
   const earth = getEarthSnapshot(timestamp);
   const andromeda = getAndromedaSnapshot(timestamp);
   const earthRadius = getDisplayRadius(EARTH_DISPLAY.orbitScale, sceneRadius);
@@ -1079,27 +1188,27 @@ function drawScene(timestamp) {
       const currentRadius = sceneRadius * band.radiusFactor;
       ctx.beginPath();
       ctx.moveTo(
-        earthX + Math.cos(coneAngle - VIEW_CONE_HALF_ANGLE) * previousRadius,
-        earthY + Math.sin(coneAngle - VIEW_CONE_HALF_ANGLE) * previousRadius,
+        earthX + Math.cos(visibleCone.center - visibleCone.halfAngle) * previousRadius,
+        earthY + Math.sin(visibleCone.center - visibleCone.halfAngle) * previousRadius,
       );
       ctx.arc(
         earthX,
         earthY,
         currentRadius,
-        coneAngle - VIEW_CONE_HALF_ANGLE,
-        coneAngle + VIEW_CONE_HALF_ANGLE,
+        visibleCone.center - visibleCone.halfAngle,
+        visibleCone.center + visibleCone.halfAngle,
       );
       if (previousRadius > 0) {
         ctx.lineTo(
-          earthX + Math.cos(coneAngle + VIEW_CONE_HALF_ANGLE) * previousRadius,
-          earthY + Math.sin(coneAngle + VIEW_CONE_HALF_ANGLE) * previousRadius,
+          earthX + Math.cos(visibleCone.center + visibleCone.halfAngle) * previousRadius,
+          earthY + Math.sin(visibleCone.center + visibleCone.halfAngle) * previousRadius,
         );
         ctx.arc(
           earthX,
           earthY,
           previousRadius,
-          coneAngle + VIEW_CONE_HALF_ANGLE,
-          coneAngle - VIEW_CONE_HALF_ANGLE,
+          visibleCone.center + visibleCone.halfAngle,
+          visibleCone.center - visibleCone.halfAngle,
           true,
         );
       } else {
@@ -1117,8 +1226,8 @@ function drawScene(timestamp) {
     ctx.beginPath();
     ctx.moveTo(Math.round(earthX), Math.round(earthY));
     ctx.lineTo(
-      Math.round(earthX + Math.cos(coneAngle) * sceneRadius * 0.72),
-      Math.round(earthY + Math.sin(coneAngle) * sceneRadius * 0.72),
+      Math.round(earthX + Math.cos(visibleCone.center) * sceneRadius * 0.72),
+      Math.round(earthY + Math.sin(visibleCone.center) * sceneRadius * 0.72),
     );
     ctx.strokeStyle = "rgba(255,255,255,0.35)";
     ctx.lineWidth = 2;
@@ -1165,7 +1274,7 @@ function drawScene(timestamp) {
     });
   }
 
-  drawPlanet({ color: "#ffd54f", doodle: "sun" }, 0, 0, 18, "#fff2ad");
+  drawSun(0, 0, 18);
   registerBody({
     name: "Sun",
     kind: "Star",
@@ -1176,18 +1285,6 @@ function drawScene(timestamp) {
     canvasY: centerY,
     hitRadius: 22,
   });
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,210,90,0.35)";
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 10; i += 1) {
-    const angle = (i / 10) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(angle) * 22, Math.sin(angle) * 22);
-    ctx.lineTo(Math.cos(angle) * 29, Math.sin(angle) * 29);
-    ctx.stroke();
-  }
-  ctx.restore();
-
   drawPlanet(EARTH_DISPLAY, earthX, earthY, EARTH_DISPLAY.size, "#dff1ff");
   registerBody({
     name: "Earth",
