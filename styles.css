@@ -208,18 +208,6 @@ input:focus-visible {
   display: inline-block;
 }
 
-.cone-eye {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.cone-binoculars {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.cone-scope {
-  background: rgba(255, 255, 255, 0.22);
-}
-
 .cone-sun {
   background: rgba(255, 226, 120, 0.28);
 }

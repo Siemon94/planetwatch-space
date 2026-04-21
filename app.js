@@ -44,16 +44,7 @@ const RAD = 180 / Math.PI;
 const J2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
 const MS_PER_DAY = 86400000;
 const OBLIQUITY = 23.43928 * DEG;
-const VIEW_CONE_HALF_ANGLE = 18 * DEG;
 const SUN_CONE_HALF_ANGLE = 30 * DEG;
-const VIEW_CONE_PADDING = 8 * DEG;
-const VIEW_CONE_MIN = 10 * DEG;
-const VIEW_CONE_MAX = 42 * DEG;
-const CONE_BANDS = [
-  { radiusFactor: 0.28, fill: "rgba(255,255,255,0.07)", stroke: "rgba(255,255,255,0.12)" },
-  { radiusFactor: 0.5, fill: "rgba(255,255,255,0.12)", stroke: "rgba(255,255,255,0.16)" },
-  { radiusFactor: 0.72, fill: "rgba(255,255,255,0.18)", stroke: "rgba(255,255,255,0.22)" },
-];
 const EARTH_ELEMENTS = {
   a: [1.00000261, 0.00000562],
   e: [0.01671123, -0.00004392],
@@ -210,7 +201,6 @@ const state = {
   location: { ...places.brussels },
   lastFrame: performance.now(),
   showOrbits: true,
-  showCone: true,
   showLabels: true,
   showHighlights: true,
   showAndromeda: true,
@@ -393,67 +383,6 @@ function altitudeAzimuth(ra, dec, timestamp, latitudeDeg, longitudeDeg) {
   return { altitude, azimuth, hourAngle: signedHourAngle };
 }
 
-function projectedConeAngle(timestamp, location) {
-  const lst = localSiderealTime(timestamp, location.lon);
-  const latitude = location.lat * DEG;
-
-  const zenithEquatorial = {
-    x: Math.cos(latitude) * Math.cos(lst),
-    y: Math.cos(latitude) * Math.sin(lst),
-    z: Math.sin(latitude),
-  };
-
-  const zenithEcliptic = {
-    x: zenithEquatorial.x,
-    y: zenithEquatorial.y * Math.cos(-OBLIQUITY) - zenithEquatorial.z * Math.sin(-OBLIQUITY),
-    z: zenithEquatorial.y * Math.sin(-OBLIQUITY) + zenithEquatorial.z * Math.cos(-OBLIQUITY),
-  };
-
-  return normalizeAngle(Math.atan2(zenithEcliptic.y, zenithEcliptic.x));
-}
-
-function getVisibleConeSector(snapshots, fallbackAngle) {
-  const angles = snapshots
-    .filter((planet) => planet.visible)
-    .map((planet) => normalizeAngle(planet.geocentricAngle))
-    .sort((a, b) => a - b);
-
-  if (angles.length === 0) {
-    return {
-      center: fallbackAngle,
-      halfAngle: VIEW_CONE_HALF_ANGLE,
-    };
-  }
-
-  if (angles.length === 1) {
-    return {
-      center: angles[0],
-      halfAngle: VIEW_CONE_MIN + VIEW_CONE_PADDING * 0.5,
-    };
-  }
-
-  let largestGap = -1;
-  let gapIndex = 0;
-  for (let i = 0; i < angles.length; i += 1) {
-    const current = angles[i];
-    const next = i === angles.length - 1 ? angles[0] + Math.PI * 2 : angles[i + 1];
-    const gap = next - current;
-    if (gap > largestGap) {
-      largestGap = gap;
-      gapIndex = i;
-    }
-  }
-
-  const start = angles[(gapIndex + 1) % angles.length];
-  const end = angles[gapIndex] + (gapIndex === angles.length - 1 ? Math.PI * 2 : 0);
-  const span = end - start;
-
-  return {
-    center: normalizeAngle(start + span / 2),
-    halfAngle: clamp(span / 2 + VIEW_CONE_PADDING, VIEW_CONE_MIN, VIEW_CONE_MAX),
-  };
-}
-
 function resizeCanvas() {
   const parent = canvas.parentElement;
   const size = Math.min(parent.clientWidth, parent.clientHeight);
@@ -599,7 +528,6 @@ function getPlanetSnapshots(timestamp) {
       ...planet,
       distance: dist,
       angle,
-      geocentricAngle: Math.atan2(geocentric.y, geocentric.x),
       altitude: horizontal.altitude,
       azimuth: horizontal.azimuth,
       visible: horizontal.altitude > 0,
@@ -1157,9 +1085,7 @@ function drawScene(timestamp) {
   const centerX = width / 2;
   const centerY = height / 2;
   const sceneRadius = Math.min(width, height) * 0.44;
-  const fallbackConeAngle = projectedConeAngle(timestamp, state.location);
   const snapshots = getPlanetSnapshots(timestamp);
-  const visibleCone = getVisibleConeSector(snapshots, fallbackConeAngle);
   const earth = getEarthSnapshot(timestamp);
   const andromeda = getAndromedaSnapshot(timestamp);
   const earthRadius = getDisplayRadius(EARTH_DISPLAY.orbitScale, sceneRadius);
@@ -1181,58 +1107,6 @@ function drawScene(timestamp) {
 
   ctx.save();
   ctx.translate(centerX, centerY);
-
-  if (state.showCone) {
-    let previousRadius = 0;
-    CONE_BANDS.forEach((band) => {
-      const currentRadius = sceneRadius * band.radiusFactor;
-      ctx.beginPath();
-      ctx.moveTo(
-        earthX + Math.cos(visibleCone.center - visibleCone.halfAngle) * previousRadius,
-        earthY + Math.sin(visibleCone.center - visibleCone.halfAngle) * previousRadius,
-      );
-      ctx.arc(
-        earthX,
-        earthY,
-        currentRadius,
-        visibleCone.center - visibleCone.halfAngle,
-        visibleCone.center + visibleCone.halfAngle,
-      );
-      if (previousRadius > 0) {
-        ctx.lineTo(
-          earthX + Math.cos(visibleCone.center + visibleCone.halfAngle) * previousRadius,
-          earthY + Math.sin(visibleCone.center + visibleCone.halfAngle) * previousRadius,
-        );
-        ctx.arc(
-          earthX,
-          earthY,
-          previousRadius,
-          visibleCone.center + visibleCone.halfAngle,
-          visibleCone.center - visibleCone.halfAngle,
-          true,
-        );
-      } else {
-        ctx.lineTo(earthX, earthY);
-      }
-      ctx.closePath();
-      ctx.fillStyle = band.fill;
-      ctx.fill();
-      ctx.strokeStyle = band.stroke;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      previousRadius = currentRadius;
-    });
-
-    ctx.beginPath();
-    ctx.moveTo(Math.round(earthX), Math.round(earthY));
-    ctx.lineTo(
-      Math.round(earthX + Math.cos(visibleCone.center) * sceneRadius * 0.72),
-      Math.round(earthY + Math.sin(visibleCone.center) * sceneRadius * 0.72),
-    );
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
 
   if (state.showSunCone) {
     const sunConeRadius = sceneRadius * 0.72;
